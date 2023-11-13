@@ -1,0 +1,650 @@
+---
+title: "Mineria de dades, Pra2"
+output: html_document
+date: "2022-12-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+``` 
+
+
+## 0.Anàlisis exploratiori
+
+
+primer hi ha un chunk amb les lliberies
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(cluster) 
+library(factoextra)
+library('dbscan')
+library('fpc')
+library(dplyr)
+library(caret)
+library("party")
+library(janitor)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(randomForest)
+
+```
+
+desprès es carrega el fitxer desitjat
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+df <- read.csv("Accidents_de_tr_nsit_amb_morts_o_ferits_greus_a_Catalunya.csv",stringsAsFactors=TRUE)
+# Obtenim les dimensions del conjunt de dades, l'estructura i contingut.
+dim(df) 
+str(df)
+head(df)
+```
+
+L'objectiu de aquest apartat es netejar les dades, l'objectiu es analitzar el tipus d'accidents
+de cotxes, per això els accidents amb vianants, bicis i motos seràn borrats i (	F_VIANANTS_IMPLICADES, 	F_BICICLETES_IMPLICADES
+  F_CICLOMOTORS_IMPLICADES,  F_MOTOCICLETES_IMPLICADES)
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#accidents on hi han vinants bicis i motos no interesen, es per això que es treuen
+dadespra1 <- df[df$F_VIANANTS_IMPLICADES == 0 & df$F_BICICLETES_IMPLICADES== 0 & df$F_CICLOMOTORS_IMPLICADES==0 & df$F_MOTOCICLETES_IMPLICADES== 0 ,]
+
+dadespra1 <- dadespra1[c("Any","nomMun","F_MORTS","F_FERITS_GREUS","F_FERITS_LLEUS","D_TIPUS_VIA","grupHor","tipAcc","D_INTER_SECCIO","D_SENTITS_VIA","via","D_SUBTIPUS_ACCIDENT")]
+
+length(dadespra1)
+nrow(dadespra1)
+
+
+summary(dadespra1)
+```
+Dels 21000 valors s'han filtrat a uns 5000 i nomès hi han 11 columnes d'estudi
+
+
+## 1. Model no supervisat - kmeans
+
+L'objectiu d'aquest primer apartat es aplicar els mètodes de clustering. S'utilitzarà les variables tipus d'accident i ferits greus, per tal veure si hi ha alguna correlació
+
+Primer de tot es transforma el tipacc de character a integer per tal de poder treballar en aquest fitxer
+Desprès s'aplicarà el clustering amb 5 nuclis
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#per tal de treballar més facilment es farà un subset dels tipus d'accidents i nombre de ferits greus
+set_kmeans <- dadespra1[ , c('F_FERITS_GREUS', 'tipAcc')]
+set_kmeans$tipAcc <- as.integer(set_kmeans$tipAcc)
+head(set_kmeans)
+
+fit5      <- kmeans(set_kmeans[1:2], 5)
+clusplot(set_kmeans[1:2], fit5$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+```
+
+En la imatge es poden apreciar 5 grups, ara bé la forma dels nuclis no es veu prou optima
+
+
+Ara es proba lo mateix, ara bé canviant de posició per tal de veure si hi ha alguna millora al fer els grups
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# https://statologos.com/reordenar-columnas-r/
+set_kmeans_girat <- set_kmeans %>% select (tipAcc, F_FERITS_GREUS)
+
+head(set_kmeans_girat)
+
+fit5_girat      <- kmeans(set_kmeans_girat[1:2], 5)
+clusplot(set_kmeans_girat[1:2], fit5_girat$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+```
+a priori no hi cap milloria aparent
+
+una forma d'evaluarlo es mirant la ss, per desgracia imprimeix un munt de valors
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# 
+#https://www.marktechpost.com/2019/04/24/r-k-means-clustering-and-evaluation-of-the-model/
+print (fit5)
+```
+
+
+el resultat del 78% teoricament es força bo, ara bé, si es veuen les imatges aleshores es pot dir que la clusterització no es correcte.
+
+una altre forma d'evaluar-lo es mirant la siloutte
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# #https://medium.com/codesmart/r-series-k-means-clustering-silhouette-794774b46586
+y_cluster5 <- fit5$cluster
+# #la funció daisy calcula la distancia entre els punts https://www.rdocumentation.org/packages/cluster/versions/2.1.4/topics/daisy
+dai  <- daisy(set_kmeans) 
+sk5 <- silhouette(y_cluster5, dai)
+# #la mitjana i lo bo que es cada cluster es:
+ mean(sk5[,3])
+
+```
+un resultat del 0.5 no es del tot optim. es possible obtenir un resultat millor?
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# #https://medium.com/codesmart/r-series-k-means-clustering-silhouette-794774b46586
+fviz_nbclust(set_kmeans, kmeans, method='silhouette')
+```
+
+
+es pot observar que l'optim seria amb 7 clusters. CUriosament sabem la reposta, 6. es a dir que no seria del tot correcte.
+
+
+Per finalitzar aquest apartat i acabada la practica es canvia la variant categorica per ferits lleus
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#per tal de treballar més facilment es farà un subset dels tipus d'accidents i nombre de ferits greus
+set_kmeans12 <- dadespra1[ , c('F_FERITS_GREUS', 'F_FERITS_LLEUS')]
+
+head(set_kmeans12)
+
+fit12      <- kmeans(set_kmeans12[1:2], 5)
+clusplot(set_kmeans12[1:2], fit12$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+```
+tampoc es pot veure cap grup clar
+
+
+## 2. Model no supervisat, canviant la distància
+
+En aquest apartat es jugaran amb els parametres per tal d'obtenir un resultat millor
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+km25 <- kmeans(set_kmeans, centers = 5, nstart = 500)
+clusplot(set_kmeans[1:2], km25$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+```
+es pot observar com en aquest cas millora l'agrupament
+
+i el valor de siloute es:
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# #https://medium.com/codesmart/r-series-k-means-clustering-silhouette-794774b46586
+y_cluster25 <- km25$cluster
+# #la funció daisy calcula la distancia entre els punts https://www.rdocumentation.org/packages/cluster/versions/2.1.4/topics/daisy
+dai25  <- daisy(set_kmeans) 
+sk25 <- silhouette(y_cluster25, dai)
+# #la mitjana i lo bo que es cada cluster es:
+ mean(sk25[,3])
+
+```
+el valor de siloutte ha millorat , passant de 0.5 a 0.6. El resultat ara bé segueix siguent no optimal
+
+
+## 3. Model no supervisat, DBSCAN i OPTICS
+
+## 3.1 Optics
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+opt31 <- optics(set_kmeans, minPts = 600)
+opt31
+plot(set_kmeans[1:2], cluster = TRUE, predecessor = FALSE)
+plot(set_kmeans, col = "grey")
+polygon(set_kmeans[opt31$order,])
+```
+
+es pot observar com hi han els grups haurien de ser lineals, ara bé no ho son y la linea que fa els grups va de linea a linea
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+resdb01 <- extractDBSCAN(opt31, eps_cl = 0.1)
+resdb01
+resdb025 <- extractDBSCAN(opt31, eps_cl = 0.25)
+resdb025
+resdb05 <- extractDBSCAN(opt31, eps_cl = 0.5)
+resdb05
+resdb075 <- extractDBSCAN(opt31, eps_cl = 0.75)
+resdb075
+resdb1 <- extractDBSCAN(opt31, eps_cl = 1)
+resdb1
+resdb2 <- extractDBSCAN(opt31, eps_cl = 2)
+resdb2
+resdb5 <- extractDBSCAN(opt31, eps_cl = 5)
+resdb5
+
+par(mfrow=c(2,3))
+hullplot(set_kmeans[1:2], resdb01, main="eps01")
+hullplot(set_kmeans[1:2], resdb025, main="eps025")
+hullplot(set_kmeans[1:2], resdb05, main="eps05")
+hullplot(set_kmeans[1:2], resdb075, main="eps075")
+hullplot(set_kmeans[1:2], resdb1, main="eps1")
+hullplot(set_kmeans[1:2], resdb2, main="eps2")
+
+```
+
+es pot observar que el mètode no funciona gaire bé, ara es provara dbscan que canvia de forma i potser es més optimal
+
+per finalitzar s'aplicarà siloutte per tal de veure la qualitat del agrupament
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+dai25  <- daisy(set_kmeans) 
+sk31 <- silhouette(resdb1$cluster, dai)
+# #la mitjana i lo bo que es cada cluster es:
+ mean(sk31[,3])
+```
+es pot observar que amb el valor de eps_CL 1 s'obte una siloutte de 0.7, fins ara el millor resultat
+
+## 3.2 DBSCAN 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+Dbscan_cl <- fpc::dbscan(set_kmeans, eps = 0.9, MinPts = 400)
+Dbscan_cl
+#head(temp)
+
+# bill_lLength y bill_depth
+plot(Dbscan_cl, set_kmeans[1:2], main = "DBScan Tipus d'accident -Nombre de passatgers")
+
+
+
+```
+A continuació es jugarà amb els valors per tal d'optimitzar la clusterització
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+Dbscan_cl05 <- fpc::dbscan(set_kmeans, eps = 0.5, MinPts = 400)
+Dbscan_cl2 <- fpc::dbscan(set_kmeans, eps = 2, MinPts = 400)
+
+Dbscan_cl05
+Dbscan_cl2
+```
+es pot observer com 0.5 i 1 de valors de eps son optims
+
+A continuació es farà la evaluacio de siloutte 
+
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+
+
+sk32 <- silhouette(Dbscan_cl$cluster, dai)
+# #la mitjana i lo bo que es cada cluster es:
+ mean(sk32[,3])
+```
+el valor obtingut no es gens bo, nomès una mica millor que el del apartat 1. 
+
+El gran problema d'aquest dataset es que no es el correcte per aplicar aquest mètode,
+ja que el tipAcc es un integer on nomes hi han 5 opcions.
+
+Una opció per millorar el clustering seria girar el dataset, ara bé, al principi (exercici1)
+s'ha fet i no hi ha cap mena de millora aparent
+
+Per finalitzar s'ha trobat una opción on dbscan busca linearment
+#https://cran.r-project.org/web/packages/dbscan/dbscan.pdf
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+Dbscan_lin <- dbscan::dbscan(set_kmeans, eps = 0.9, MinPts = 300,  search = "linear")
+
+
+Dbscan_lin
+plot(Dbscan_lin, set_kmeans[1:2], main = "DBScan linear")
+```
+es pot observar la clusterització, es complicat decidir el nombre de punts min, per que com es veu al tip d'accident 1 no hi cap grup, suposo que son pocs accidents, en canvi en els superiors es veuen mes grups en un tipus d'accident
+
+## 4.1 Arbre de decisió -C50
+
+
+abans de començar aquest apartat es borraràn unes quantes columnes que no aporten molt i es modificarà les dades per poder-les treballar amb el c50
+```{r}
+dadespra2<- dadespra1[ ,  !names(dadespra1) %in% c("Any", "nomMun", "F_MORTS","via")]
+
+dadespra2 <- na.omit(dadespra2)
+dadespra2$tipAcc <-gsub("[[:punct:]]", "", dadespra2$tipAcc) 
+dadespra2$D_SUBTIPUS_ACCIDENT <-gsub("[[:punct:]]", "", dadespra2$D_SUBTIPUS_ACCIDENT) 
+#el metode no funciona amb espais
+dadespra2$tipAcc <-gsub(" ", "", dadespra2$tipAcc)
+ #el metode tampoc funciona amb accents
+dadespra2$tipAcc <-gsub("ó", "o", dadespra2$tipAcc) 
+dadespra2$grupHor <-gsub("í", "i", dadespra2$grupHor)
+dadespra2$tipAcc <- as.factor(dadespra2$tipAcc)
+
+dadespra2$D_TIPUS_VIA  <-gsub(" ", "", dadespra2$D_TIPUS_VIA  )
+dadespra2$D_TIPUS_VIA  <-gsub("í", "i", dadespra2$D_TIPUS_VIA )
+dadespra2$D_INTER_SECCIO   <-gsub("ó", "o", dadespra2$D_INTER_SECCIO )
+dadespra2$D_SUBTIPUS_ACCIDENT  <-gsub("ó", "o", dadespra2$D_SUBTIPUS_ACCIDENT)
+dadespra2$D_SUBTIPUS_ACCIDENT  <-gsub("è", "e", dadespra2$D_SUBTIPUS_ACCIDENT)
+dadespra2$D_SUBTIPUS_ACCIDENT  <-gsub("ç", "c", dadespra2$D_SUBTIPUS_ACCIDENT)
+
+#per acabar es passaran tots els ferits greus a 1
+dadespra2$F_FERITS_GREUS <- ifelse(dadespra2$F_FERITS_GREUS  <=0.49, 0, 1)
+dadespra2$F_FERITS_LLEUS <- ifelse(dadespra2$F_FERITS_LLEUS  <=0.49, 0, 1)
+dadespra2$F_FERITS_LLEUS <- as.factor(dadespra2$F_FERITS_LLEUS)
+dadespra2$F_FERITS_GREUS <- as.factor(dadespra2$F_FERITS_GREUS)
+head (dadespra2)
+
+```
+De manera dinàmica podem definir una manera de separar les dades en funció d'un paràmetre, en aquest cas del "split_prop".
+Definim un paràmetre que controla el split de manera dinàmica en el test.
+
+```{r}
+#primer separem els valors, i la y sera f_ferits greus
+
+
+set.seed(666)
+
+sample <- sample(c(TRUE, FALSE), nrow(dadespra2), replace=TRUE, prob=c(0.75,0.25))
+train<-dadespra2[sample,]
+trainy<-train[,1, drop=FALSE]
+train<-train[,-1]
+test<-dadespra2[!sample,]
+testy<-test[,1, drop=FALSE]
+test<-test[,-1]
+```
+
+ara es treuran els espais dels titols 
+```{r}
+
+
+#s instala aquest library per borrar els espais dels noms
+
+
+#can be done by simply
+train <- clean_names(train)
+train$d_tipus_via <- strtrim(train$d_tipus_via, 15)
+train$tip_acc <- strtrim(train$tip_acc, 20)
+
+test <- clean_names(test)
+test$d_tipus_via <- strtrim(test$d_tipus_via, 15)
+test$tip_acc <- strtrim(test$tip_acc, 20)
+
+
+head(train,5)
+```
+
+tambe es fa lo mateix pels valors de y
+```{r}
+#https://www.statology.org/random-forest-in-r/
+
+trainy <- clean_names(trainy)
+trainy$f_ferits_greus <- as.factor(trainy$f_ferits_greus)
+str(trainy)
+testy <- clean_names(testy)
+testy$f_ferits_greus <- as.factor(testy$f_ferits_greus)
+str(testy)
+```
+i per fi es pot calcular l'arbre de decissions
+```{r}
+#https://www.statology.org/random-forest-in-r/
+model4 <- C50::C5.0( train, trainy$f_ferits_greus , rules=TRUE )
+summary(model4)
+
+
+```
+
+Encara que no hi ha cap grup s'intentarà veure la qualitat del model
+
+
+```{r}
+
+tree_pred <- predict(model4, test, type="class")
+head(tree_pred)
+#tree_pred_mod <- ifelse(tree_pred <=0.49, 0, 1)
+
+head(testy$f_ferits_greus)
+
+# testy_mod_dc_mat <- as.matrix(testy_mod_dc)
+# str(tree_pred)
+# str(testy$f_ferits_greus)
+# class(tree_pred)
+# class(testy$f_ferits_greus)
+# nrow(tree_pred)
+# nrow(testy$f_ferits_greus)
+# ncol(tree_pred)
+# ncol(testy$f_ferits_greus)
+# #Import required library
+
+confusionMatrix(table(tree_pred, testy$f_ferits_greus))
+
+
+```
+s'ha predit els valors amb un 80% d'acert. L'error del arbre de decisió i aquest es diferent, ja que aquí s'utilitzen les dades de test
+
+A continuació es veura la importancia de cada variable
+
+```{r}
+
+#importancia_usage <- C50::C5imp(model4, metric = "usage")
+importancia_splits <- C50::C5imp(model4, metric = "splits")
+#importancia_usage
+importancia_splits
+
+```
+les dades no son concluents
+
+ara es probrara un altre tipus d'arbre de decisio el rpart, a veure si dona millors resultats
+
+```{r}
+#https://www.gormanalysis.com/blog/decision-trees-in-r-using-rpart/
+
+#es borra la via de les dades i es separa una altre vegada les dades
+
+train_rpart <- dadespra2[sample,]
+
+
+
+
+# mytree <- rpart(
+#   F_FERITS_GREUS  ~ .,
+#   data = train_rpart,
+#   method = "class",
+# )
+# 
+# fancyRpartPlot(mytree, caption = NULL)
+
+
+```
+desgraciadament aquesta via no es pot continuar, ja que no es poden fer els càlculs (duran una eterniat)
+
+
+## 4.2 Arbre de decisió - Random forest
+
+primer de tot es carreguen les dades test i train un altre vegada ja que pel mètode c50 les em modificat
+```{r}
+dadespra2$D_TIPUS_VIA <- as.factor(dadespra2$D_TIPUS_VIA)
+dadespra2$grupHor <- as.factor(dadespra2$grupHor)
+dadespra2$D_INTER_SECCIO <- as.factor(dadespra2$D_INTER_SECCIO)
+dadespra2$D_SUBTIPUS_ACCIDENT <- as.factor(dadespra2$D_SUBTIPUS_ACCIDENT)
+train_rf <- dadespra2[sample,]
+test_rf <- dadespra2[!sample,]
+str(train_rf)
+```
+
+```{r}
+#https://www.statology.org/random-forest-in-r/
+# per tal de poder plotejar el random forest s'utlitza aquesta lliberia
+#https://www.guru99.com/r-decision-trees.html
+
+rf_5 <-  ctree(F_FERITS_GREUS ~ ., data = train_rf)
+plot(rf_5, type="simple")
+rf_5
+
+```
+es pot observar que per els accidents greus, el cas que té mes casos 1500, tambe nomes amb via hi han 848 casos
+
+
+```{r}
+
+
+predicted_model_RF <- predict( rf_5, test_rf )
+head(predicted_model_RF)
+#ara es modificaran el test y per tal de que els valors majors a 1 siguin 1 i els predict per tal de tenir 1 o 0
+# predicted_mod <- ifelse(predicted_model <=0.49, 0, 1)
+# testy_mod <- ifelse(test_rf$F_FERITS_GREUS <=0.49, 0, 1)
+# testy_mod_mat <- as.matrix(testy_motesty_mod
+# str(predicted_model_RF)
+# str(testy_mod_mat)
+# class(predicted_mod)
+# class(testy_mod_mat)
+# nrow(predicted_mod)
+# nrow(testy_mod_mat)
+# ncol(predicted_mod)
+# ncol(testy_mod_mat)
+#Import required library
+
+confusionMatrix(table(predicted_model_RF, test_rf$F_FERITS_GREUS))
+
+
+```
+
+
+el resultat dona un 83% d'acert, curios, el mateix valor que en el anterior cas,
+ara bé, amb diferents models
+
+
+Ara es veure quin es el nombre optim de nodes
+
+```{r}
+
+#per aquest cas no e carrega la variable via, ja que te moltes variables i la comanda tunerd no ho enten
+
+
+
+model_tuned <- tuneRF(
+                x=train_rf[,-c(1,8)], #define predictor variables
+                y=train_rf$F_FERITS_GREUS, #define response variable
+                ntreeTry=500,
+                mtryStart=4, 
+                stepFactor=1.5,
+                improve=0.01,
+                trace=FALSE #don't show real-time progress
+                )
+# summary(train_rf)
+```
+
+Es pot observar que el menor error de OOB es fa utilitzant 2 predicadors aleatoris en cada node 
+
+
+```{r}
+#aquesta variant no esta pel random forest original, per aixo es fa una altre vegada
+#es borra la variable via ja que no funciona
+#train_rf <- train_rf[,-8]
+rf_2 <-  randomForest(F_FERITS_GREUS  ~ ., data = train_rf, ntree = 50)
+rf_2 
+```
+aquest model l'error residual mitja es del 13%
+
+```{r}
+
+varImpPlot(rf_2) 
+```
+s'observa que les varaibles que afecten més en els accidents greus, son el subtipus d'accident i el tipus de via.
+
+
+## 5. Regressió logistica
+
+per finalitzar l'apartat de càlcul es s'utilitzarà la regressió logistica per predeiir segons el tipus d'accident i altres variables si hi hauran ferits greus
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+head(train_rf)
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# hhttp://www.sthda.com/english/articles/36-classification-methods-essentials/151-logistic-regression-essentials-in-r/
+#https://stackoverflow.com/questions/5863097/selecting-only-numeric-columns-from-a-data-frame
+
+
+modelo_6rl <- glm(F_FERITS_GREUS ~. ,family=binomial(link='logit'),data=train_rf)    
+summary(modelo_6rl)
+```
+es pot observar com per algunes columnes hi han valors que aporten (autopista) i altres que no.
+Les variables de Pr (z) mes grans que 0.05 es podrien borrar. També es pot dir, que si el valor de z es negatiu,
+aleshores la variable afecta negativament en el resultat
+Ara es veure, si hi han valors colinieals, es a dir, si influeixen de mateixa manera en el resultat
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#https://www.statology.org/variance-inflation-factor-r/
+library(car)
+
+
+#vif(modelo_6rl)
+# Summarize the model
+
+```
+Apareix el següent error:Error in cor(train_rf) : 'x' must be numeric
+aquest mètode no ha funcionat, ja que hi han dades colineals
+https://www.statology.org/r-aliased-coefficients-in-the-model/
+
+
+A continuació es calcularàn els valors OR (Odds-Ràtio) , que es el factor d'exit o de fracas
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#https://stackoverflow.com/questions/41384075/r-calculate-and-interpret-odds-ratio-in-logistic-regression
+#: Class,Customer_Type, Gender i Ent.
+
+
+exp(coefficients(modelo_6rl))
+
+```
+els valors superior a la unitat es consideren factor de risc, es a dir que la seva inclusió va bé pel mòdel. En canvi, valors menors a 1 el succès es menys probable si hi ha aquesta variable
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#https://www.digitalocean.com/community/tutorials/confusion-matrix-in-r
+#https://www.statology.org/confusion-matrix-in-r/
+
+predicted_6lm <- predict( modelo_6rl, test_rf[,-1],type="response" )
+
+
+
+#transforma els valors a 0 o 1
+predicted_6lm_mod<- ifelse(predicted_6lm <=0.72, 0, 1)
+head(predicted_6lm_mod)
+aaa <- as.numeric(test_rf$F_FERITS_GREUS)
+# aaa_mod <- ifelse(aaa <=0.49, 0, 1)
+# # #https://stackoverflow.com/questions/36573767/how-to-data-frame-convert-to-atomic-vector-in-r
+#  bbb <- as.numeric(sub(",", "", unlist(predicted_6lm_mod, use.names=FALSE)))
+# head(bbb)
+# # #https://stackoverflow.com/questions/36573767/how-to-data-frame-convert-to-atomic-vector-in-r
+# # aaa <- as.numeric(sub(",", "", unlist(test_rf$F_FERITS_GREUS, use.names=FALSE)))
+# 
+# # head(aaa_mod)
+# #  length(predicted_6lm_mod)
+# #  length(test_rf$F_FERITS_GREUS)
+# class(bbb)
+# #  class(as.numeric(test_rf$F_FERITS_GREUS))
+# #  nrow(predicted_6lm_mod)
+# #  nrow(test_rf$F_FERITS_GREUS)
+# #  ncol(predicted_6lm_mod)
+# #  ncol(test_rf$F_FERITS_GREUS)
+# #  str(bbb)
+# #  str(aaa_mod)
+# #  head (predicted_6lm,500)
+# #  table(bbb,  aaa_mod)
+# #  identical(levels(bbb),levels(aaa_mod))
+# confusionMatrix(table(bbb,  as.numeric(test_rf$F_FERITS_GREUS)))
+ 
+ 
+
+```
+Per un costat s'obte un warning que vol dir que hi han predictors que estan correlacionats (tambe s'ha obtes aquesta info amb el métode VIF)
+https://www.statology.org/prediction-from-rank-deficient-fit-may-be-misleading/
+
+Per un altre costat, els vectors aaa i bbb tenen el mateix format i la mateixa allargada (com es pot veure), ara bé, la matriu de confussió no funciona per que els resultats del predict son mes gran que 0.49 i aleshores tots donen 1 i nomès hi ha un nivell
+
+## 6. Possibles riscos
+
+En aquesta Practica, s’han utilitzat les dades de la anterior practica, que eren les dades d’accidents amb ferits greus i morts a Catalunya en el període del 2010 al 2021. El primer risc que hi ha, es el fitxer en si, que té moltes dades i s’ha d’escollir un objectiu, aleshores es filtren les dades, per tal de escollir les que volem. En aquest cas, eren els accidents amb cotxes, per això es descarten accidentes amb vianants, bicis i motos. Un altre problema, es que hi va haver un accident de bus al Ebre on varen morir molta gent i per aquesta practica els valors surten com a outliers.
+
+Un altre risc que hi ha en aquesta practica referent al fitxer, es que té caràcters especials i en els títols hi ha espais, per això dona problemes al aplicar l’algoritme c50.
+
+Referent als mètodes no supervisats, les clusteritzacions, no son optimes per aquest tipus de fitxer, ja que la majoria de les dades (a excepció del nombre de ferits) son categòriques i aleshores els clusters haurien de ser lineals i no funcionen. Ara bé, s’han girat les dades i tampoc no ha millorat molt.
+Pels mètodes de regressió logística l’objectiu es averiguar si hi han ferits greus i el resultat es força bo, ara bé, el fitxer bàsicament té dades amb ferits greus, potser amb altres fitxers on no hi hagin tants ferits greus donaran uns resultats no molt òptims.
+Per finalitzar en l’arbre de decisió, hi han hagut problemes en l’algoritme c50, però ha funcionat amb el mètode random forest, els resultats obtessos poden categoritzar 1500 casos de 5000, es una dada poc optima encara que 
+En conclusió aquest conjunt de dades es millor treballar-les en arbres de decissions o regressions que no amb mètodes de clusteritzacions, per que les dades son categoriques.
+
+## 7. Limitacions i lliçons apreses
+Aquesta assignatura ha estat la primera que he utilitzat r i rstudio. En totes les altres pac, tenia de referencia els exemples, ara bé, en aquesta he anat per lliure i això fa a vegades díficil d’avanzar,ara bé sempre s’apren d’aquestes coses
+
+Ens els primers exercicis,els de clusterització no ha anat molt bé, ja que les dades en la seva major part son categòriques i no ha donat bons resultats. La meva idea del exercici era comparar el nombre de ferits i tipus d’accident. Ara bé els resultats no son molt bons, ja que les dades categòriques ja estan clusteritzades en una linea i els algoritmes tenen problemes al processar-ho. Jo pensava que si gires les dades aleshores tindria  més possibilitats però no ha estat així. Ara mirant en retrospectiva, crec que potser hauria estat millor comparar els ferits greus i ferits lleus per tal de veure si hi ha alguna mena de relació segons el tipus d’accident o de vehicle.
+Un Problema que s'ha trobat, es que al postprocessar, sembla que hi hagin poques dades, perque son integers i estan a sobre del altre, ara bé, segueixen sent bastants punts
+
+En el segon apartat , les dades no eren molt optimes pel algoritme c50, hi això m’ha fet invertir-hi un munt de temps per tal de transformar-les i que dones algun resultat. Una vegada que s’ha obtes un resultat tampoc ha estat molt bo, ja que no hi havia cap regla. He intentant utilitzar un altre mètode de classificació però aleshores l’ordinador es quedava penjat. Potser amb un millor ordinador o preprocessant millor les dades hauria anat més ràpid.
+
+Per finalitzar s’ha aplicat el mètode de regressió logística per tal poder dir si hi ha accident greu segons les dades. Ara bé hi han dades colineals fet que fa que no es poguin fer correctament la predicció ni el mètode vif.
+
+Un dels problemes que m'he trobat, es que he fet un seed al repetir els càlculs m'he trobat que alguns resultats han variat
+
+En els tres casos s’ha aplicat la matriu de confussió per veure la qualitat del mòdel utilitzant les dades test, aquí també he tingut forces problemes en poder aplicar aquest parametre.
+
+En conclusió ha estat un exercici útil per veure els límits de les dades, agafar agilitat utilitzant el software rstudio i entendre millor el dia a dia de un «data engineer»
